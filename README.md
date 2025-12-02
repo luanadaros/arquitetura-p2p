@@ -1,7 +1,11 @@
 # arquitetura-p2p
 
-# proximos passos
-1) testar who_has
-2) se who_has retornar algum peer, é preciso solicitar o arquivo à esse peer
-3) dividir arquivo para enviar
-4) verificar recepcao do arquivo
+## comandos no terminal do peer
+1)  ``get <filename>``
+    - requisita o arquivo para outros peers
+2) ``myfiles``
+    - retorna a lista de arquivos do peer
+3) ``whohas <filename>``
+    - retorna lista de endereços de peers que possuem o arquivo
+4) ``exit``
+    - finaliza conexão do peer

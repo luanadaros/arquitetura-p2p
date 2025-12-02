@@ -47,9 +47,24 @@ class Tracker:
                 ]
 
                 connection.sendall(",".join(holders).encode())
+            
+            elif command == "NEW_FILE":
+                peer_id = data[1]
+                filename = data[2]
+                with self.lock:
+                    if peer_id in self.peers:
+                        self.peers[peer_id]['files'].append(filename)
+                        print(f"Peer {peer_id} added new file: {filename}")
+                connection.send(b"NEW FILE ADDED TO PEER FILES DIRECTORY")
+
+            elif command == "DISCONNECT":
+                peer_id = data[1]
+                with self.lock:
+                    if peer_id in self.peers:
+                        del self.peers[peer_id]
+                        print(f"Peer {peer_id} disconnected")
 
         except Exception as e:
-            print(f"Falta de informações no comando recebido")
             connection.send(b"NOT REGISTERED")
 
         connection.close()

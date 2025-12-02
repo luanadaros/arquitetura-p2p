@@ -9,7 +9,7 @@ if len(sys.argv) > 2:
     print(f"Peer: {sys.argv[1]}")
     print(f"Port: {sys.argv[2]}")
 else:
-    print("Nenhum argumento foi passado.")
+    print("Missing arguments. Usage: python peer.py <PEER_ID> <PORT>")
 
 TRACKER = ("127.0.0.1", 8000)
 PEER_ID = sys.argv[1]
@@ -36,10 +36,15 @@ class Peer:
     
     def start(self):
         while True:
-            connection, address = self.peer_socket.accept()
-            threading.Thread(target=self.handle_request, args=(connection, address)).start()
+            try:
+                connection, address = self.peer_socket.accept()
+                threading.Thread(target=self.handle_request, args=(connection, address)).start()
+            except KeyboardInterrupt:
+                print("Disconnecting peer...")
+                self.peer_socket.close()
+                sys.exit(0)
     
-    def handle_request(self, connection):
+    def handle_request(self, connection, address):
         data = connection.recv(4096).decode()
         command, filename = data.split()
         
@@ -54,7 +59,7 @@ class Peer:
                     break
         connection.close()
     
-    def _recvn(sock, n):
+    def _recvn(self, sock, n):
         data = b''
         while len(data) < n:
             packet = sock.recv(n - len(data))
@@ -66,7 +71,7 @@ class Peer:
     def request_file(self, filename):
         holders = self.who_has(filename)
         if not holders:
-            print(f"Nenhum peer possui o arquivo {filename}")
+            print(f"No peer has the file {filename}")
             return
 
         ip, port = holders[0].split(":")
@@ -89,15 +94,21 @@ class Peer:
                 blocks[block_idx] = block_data
 
             if blocks:
-                for idx, data in blocks.items():
-                    file._read_inblock(idx, data)
-                file.order_blocks()
-                file.set_n_of_blocks(len(blocks))
-                file.file_name = filename
+                file.read_from_blocklist(blocks, filename)
                 self.files.append(file)
+                file.save_to_disk(f"{self.peer_id}/files")
+            self.send_new_file_notification(filename)
+            s.close()
 
-        print(f"Arquivo {filename} baixado com sucesso.")
+    def send_new_file_notification(self, filename):
+        message = f"NEW_FILE {self.peer_id} {filename}"
 
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+            s.connect(TRACKER)
+            s.sendall(message.encode())
+            response = s.recv(4096).decode()
+            print(f"Tracker response: {response}")
+            s.close()
 
     def register_with_tracker(self):
         peer_id = self.peer_id
@@ -127,15 +138,48 @@ class Peer:
             s.close()
             return response.split(",") if response else []
 
+    def disconnect_from_tracker(self):
+        message = f"DISCONNECT {self.peer_id}"
+
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+            s.connect(TRACKER)
+            s.sendall(message.encode())
+            s.close()
+
 if __name__ == "__main__":
     peer = Peer(PEER_ID, PORT, PEER_FILES)
     peer.register_with_tracker()
 
     if peer.registered:
-        peer.start()
-        
+        server_thread = threading.Thread(target=peer.start, daemon=True)
+        server_thread.start()
 
-    
+        while True:
+            command = input("> ").strip()
+
+            if command.startswith("get "):
+                filename = command.split(" ", 1)[1]
+                peer.request_file(filename)
+
+            elif command == "myfiles":
+                for f in peer.files:
+                    print("-", f.file_name)
+
+            elif command.startswith("whohas "):
+                filename = command.split(" ", 1)[1]
+                holders = peer.who_has(filename)
+                if holders:
+                    print(f"Peers que possuem o arquivo {filename}:")
+                    for holder in holders:
+                        print("-", holder)
+                else:
+                    print(f"Nenhum peer possui o arquivo {filename}")
 
 
+            elif command == "exit":
+                print("Encerrando peer...")
+                peer.disconnect_from_tracker()
+                sys.exit(0)
 
+            else:
+                print("Comando inválido.")
