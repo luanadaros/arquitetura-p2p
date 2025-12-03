@@ -1,6 +1,7 @@
 import socket
 import threading
 import os
+import time
 import sys
 import struct
 from file import FILES
@@ -67,38 +68,58 @@ class Peer:
                 return None
             data += packet
         return data
-
+    
     def request_file(self, filename):
         holders = self.who_has(filename)
         if not holders:
             print(f"No peer has the file {filename}")
             return
 
-        ip, port = holders[0].split(":")
-        port = int(port)
+        blocks = {}
+        blocks_lock = threading.Lock()
 
-        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-            s.connect((ip, port))
-            s.sendall(f"GET {filename}".encode())
+        def download_from_peer(holder):
+            ip, port = holder.split(":")
+            port = int(port)
 
+            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+                s.connect((ip, port))
+                s.sendall(f"GET {filename}".encode())
+
+                while True:
+                    header = self._recvn(s, 8)
+                    if not header:
+                        break
+
+                    block_idx, block_size = struct.unpack("!II", header)
+                    block_data = self._recvn(s, block_size)
+
+                    with blocks_lock:
+                        if block_idx not in blocks:
+                            blocks[block_idx] = block_data
+                            print(f"[RECEBIDO] Bloco {block_idx} ({block_size} bytes) vindo do peer {holder}")
+                            time.sleep(0.1)  # small delay to avoid overwhelming
+
+        threads = []
+        for holder in holders:
+            t = threading.Thread(target=download_from_peer, args=(holder,))
+            t.start()
+            threads.append(t)
+
+        for t in threads:
+            t.join()
+
+        if blocks:
+            print(f"[FINAL] Recebidos {len(blocks)} blocos. Reconstruindo arquivo...")
             file = FILES()
-            blocks = {}
-
-            while True:
-                header = self._recvn(s, 8)
-                if not header:
-                    break
-
-                block_idx, block_size = struct.unpack("!II", header)
-                block_data = self._recvn(s, block_size)
-                blocks[block_idx] = block_data
-
-            if blocks:
-                file.read_from_blocklist(blocks, filename)
-                self.files.append(file)
-                file.save_to_disk(f"{self.peer_id}/files")
+            file.read_from_blocklist(blocks, filename)
+            self.files.append(file)
+            file.save_to_disk(f"{self.peer_id}/files")
             self.send_new_file_notification(filename)
-            s.close()
+            print(f"[OK] Arquivo {filename} salvo.")
+
+        else:
+            print(f"[ERRO] Nenhum bloco recebido de nenhum peer.")
 
     def send_new_file_notification(self, filename):
         message = f"NEW_FILE {self.peer_id} {filename}"
@@ -174,7 +195,6 @@ if __name__ == "__main__":
                         print("-", holder)
                 else:
                     print(f"Nenhum peer possui o arquivo {filename}")
-
 
             elif command == "exit":
                 print("Encerrando peer...")

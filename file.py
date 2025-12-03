@@ -30,6 +30,7 @@ class FILES:
         self.file_name = file_name
         for idx, block in blocklist.items():
             self._read_inblock(idx, block)
+        self.order_blocks()
         self.n_of_blocks = len(self._blocks)
         self.order_blocks()
 
