@@ -6,6 +6,7 @@ class FILES:
         self.file_path = file_path
         self.file_name = os.path.basename(file_path) if file_path else ""
         self.n_of_blocks = 0
+        self.size = 0
         self._blocks = {}
         if file_path:
             self._read_from_file(file_path)
@@ -19,6 +20,8 @@ class FILES:
                     break
                 self._blocks[idx] = {'idx': idx, 'data': block}
                 idx += 1
+
+            self.size = os.path.getsize(file_path)
         self.n_of_blocks = idx
     
     def _read_inblock(self, idx: int, block: bytes):
@@ -30,6 +33,7 @@ class FILES:
         self.file_name = file_name
         for idx, block in blocklist.items():
             self._read_inblock(idx, block)
+            self.size += len(block)
         self.order_blocks()
         self.n_of_blocks = len(self._blocks)
         self.order_blocks()

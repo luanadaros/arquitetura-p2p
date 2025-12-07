@@ -97,10 +97,13 @@ class Peer:
                     with blocks_lock:
                         if block_idx not in blocks:
                             blocks[block_idx] = block_data
-                            print(f"[RECEBIDO] Bloco {block_idx} ({block_size} bytes) vindo do peer {holder}")
+                            print(f"[RECEIVED] Block {block_idx} ({block_size} bytes) from peer {holder}")
                             time.sleep(0.1)  # small delay to avoid overwhelming
 
         threads = []
+
+        start_time = time.time()
+
         for holder in holders:
             t = threading.Thread(target=download_from_peer, args=(holder,))
             t.start()
@@ -109,17 +112,24 @@ class Peer:
         for t in threads:
             t.join()
 
+        end_time = time.time()
+        print(f"[DOWNLOAD COMPLETE] Time taken: {end_time - start_time:.2f} seconds")
+        download_time = end_time - start_time
+
         if blocks:
-            print(f"[FINAL] Recebidos {len(blocks)} blocos. Reconstruindo arquivo...")
+            print(f"[FINAL] Received {len(blocks)} blocks. Rebuilding archive...")
             file = FILES()
             file.read_from_blocklist(blocks, filename)
             self.files.append(file)
             file.save_to_disk(f"{self.peer_id}/files")
             self.send_new_file_notification(filename)
-            print(f"[OK] Arquivo {filename} salvo.")
+            print(f"[DONE] FIle {filename} saved.")
 
+            with open("download_times.csv", "a") as log_file:
+                log_file.write(f"{filename}, {file.size}, {len(holders)}, {download_time:.2f}\n")
+            
         else:
-            print(f"[ERRO] Nenhum bloco recebido de nenhum peer.")
+            print(f"[ERROR] No blocks received from any peers.")
 
     def send_new_file_notification(self, filename):
         message = f"NEW_FILE {self.peer_id} {filename}"
@@ -190,16 +200,16 @@ if __name__ == "__main__":
                 filename = command.split(" ", 1)[1]
                 holders = peer.who_has(filename)
                 if holders:
-                    print(f"Peers que possuem o arquivo {filename}:")
+                    print(f"Peers with the file {filename}:")
                     for holder in holders:
                         print("-", holder)
                 else:
-                    print(f"Nenhum peer possui o arquivo {filename}")
+                    print(f"No peer has the file {filename}")
 
             elif command == "exit":
-                print("Encerrando peer...")
+                print("Finishing peer connection...")
                 peer.disconnect_from_tracker()
                 sys.exit(0)
 
             else:
-                print("Comando inválido.")
+                print("Invalid command. Available commands: get <filename>, myfiles, whohas <filename>, exit")
