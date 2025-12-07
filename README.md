@@ -86,4 +86,4 @@ Dentro do terminal do Peer:
 6. Notifica o tracker com **NEW_FILE**
 
 ## 🧪 Exemplo de Execução
-<video src="src/exemplo.mp4" controls></video>
+[Vídeo: executando peers](./src/exemplo.mp4)
