@@ -105,5 +105,6 @@ class Tracker:
 
 if __name__ == "__main__":
     tracker = Tracker()
+    tracker.get_my_ip()
     tracker.start() 
         

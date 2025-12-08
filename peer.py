@@ -41,7 +41,7 @@ class Peer:
                 files.append(f)
         return files
     
-    def _get_my_ip():
+    def _get_my_ip(self):
         s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         s.connect(("8.8.8.8", 80))
         ip = s.getsockname()[0]
