@@ -12,8 +12,11 @@ class Tracker:
         self.server_socket.listen(5)
     
     def _verify_peer_files(self, peer_id, files):
+        peer_ip = self.peers[peer_id]['ip']
+        peer_port = int(self.peers[peer_id]['port'])
+
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-            s.connect(('127.0.0.1', int(self.peers[peer_id]['port'])))
+            s.connect((peer_ip, peer_port))
             s.sendall(f"VERIFY_FILES {','.join(files)}".encode())
             response = s.recv(4096).decode()
             if response != "FILES_OK":
@@ -33,6 +36,12 @@ class Tracker:
             except Exception as e:
                 print("Error updating files:", e)
             time.sleep(2)
+
+    def get_my_ip(self):
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        s.connect(("8.8.8.8", 80))
+        print("Tracker IP:", s.getsockname()[0])
+        s.close()
 
     def start(self):
         print("Tracker started on port 8000")

@@ -6,13 +6,14 @@ import sys
 import struct
 from file import FILES
 
-if len(sys.argv) > 2:
+if len(sys.argv) > 3:
     print(f"Peer: {sys.argv[1]}")
     print(f"Port: {sys.argv[2]}")
+    print(f"Tracker IP: {sys.argv[3]}")
 else:
     print("Missing arguments. Usage: python peer.py <PEER_ID> <PORT>")
 
-TRACKER = ("127.0.0.1", 8000)
+TRACKER = (sys.argv[3], 8000)
 PEER_ID = sys.argv[1]
 PORT = int(sys.argv[2])
 PEER_FILES = f"{PEER_ID}/files"
@@ -39,6 +40,13 @@ class Peer:
                 f = FILES(file_path)
                 files.append(f)
         return files
+    
+    def _get_my_ip():
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        s.connect(("8.8.8.8", 80))
+        ip = s.getsockname()[0]
+        s.close()
+        return ip
 
     def start(self):
         while True:
@@ -63,6 +71,7 @@ class Peer:
                         header = struct.pack("!II", block_idx, block_size)
                         connection.sendall(header + block_data)
                     break
+
         elif command == "VERIFY_FILES":
             requested_files = filename.split(",")
             self.files = self.__get_files_from_dir(self._dir)
@@ -163,8 +172,9 @@ class Peer:
 
         files = ",".join(files_names)
         port = self.port
+        peer_ip = self._get_my_ip()
 
-        message = f"REGISTER 127.0.0.1 {peer_id} {port} {files}"
+        message = f"REGISTER {peer_ip} {peer_id} {port} {files}"
 
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
             s.connect(TRACKER)
