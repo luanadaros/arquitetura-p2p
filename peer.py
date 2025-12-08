@@ -23,18 +23,23 @@ class Peer:
         self.peer_id = peer_id
         self.port = port
 
-        self.files = []
-        for file in os.listdir(files_dir):
-            file_path = os.path.join(files_dir, file)
-            if os.path.isfile(file_path):
-                f = FILES(file_path)
-                self.files.append(f)
+        self.files = self.__get_files_from_dir(files_dir)
 
         self.registered = False
+        self._dir = files_dir
         self.peer_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self.peer_socket.bind(("0.0.0.0", self.port))
         self.peer_socket.listen(5)
     
+    def __get_files_from_dir(self, files_dir):
+        files = []
+        for file in os.listdir(files_dir):
+            file_path = os.path.join(files_dir, file)
+            if os.path.isfile(file_path):
+                f = FILES(file_path)
+                files.append(f)
+        return files
+
     def start(self):
         while True:
             try:
@@ -58,6 +63,17 @@ class Peer:
                         header = struct.pack("!II", block_idx, block_size)
                         connection.sendall(header + block_data)
                     break
+        elif command == "VERIFY_FILES":
+            requested_files = filename.split(",")
+            self.files = self.__get_files_from_dir(self._dir)
+            current_file_names = [f.file_name for f in self.files]
+
+            if set(requested_files) == set(current_file_names):
+                connection.sendall(b"FILES_OK")
+            else:
+                new_files_list = ",".join(current_file_names)
+                response = f"New files list: {new_files_list}"
+                connection.sendall(response.encode())
         connection.close()
     
     def _recvn(self, sock, n):

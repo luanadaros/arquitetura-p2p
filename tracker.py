@@ -1,3 +1,4 @@
+import time
 import socket
 import threading
 
@@ -9,9 +10,33 @@ class Tracker:
         self.server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self.server_socket.bind(("0.0.0.0", 8000))
         self.server_socket.listen(5)
+    
+    def _verify_peer_files(self, peer_id, files):
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+            s.connect(('127.0.0.1', int(self.peers[peer_id]['port'])))
+            s.sendall(f"VERIFY_FILES {','.join(files)}".encode())
+            response = s.recv(4096).decode()
+            if response != "FILES_OK":
+                new_files = response.replace("New files list: ", "").split(",")
+                with self.lock:
+                    self.peers[peer_id]['files'] = new_files
+                print(f"Peer {peer_id} updated files list: {new_files}")
         
+    def _update_list_of_files(self):
+        for peer_id in self.peers:
+            self._verify_peer_files(peer_id, self.peers[peer_id]['files'])
+
+    def _periodic_update(self):
+        while True:
+            try:
+                self._update_list_of_files()
+            except Exception as e:
+                print("Error updating files:", e)
+            time.sleep(2)
+
     def start(self):
         print("Tracker started on port 8000")
+        threading.Thread(target=self._periodic_update, daemon=True).start()
         while True:
             connection, address = self.server_socket.accept()
             threading.Thread(target=self.handle_request, args=(connection, address)).start()
