@@ -6,12 +6,9 @@ import sys
 import struct
 from file import FILES
 
-if len(sys.argv) > 3:
-    print(f"Peer: {sys.argv[1]}")
-    print(f"Port: {sys.argv[2]}")
-    print(f"Tracker IP: {sys.argv[3]}")
-else:
-    print("Missing arguments. Usage: python peer.py <PEER_ID> <PORT>")
+if len(sys.argv) != 4:
+    print("Missing arguments. Usage: python peer.py <PEER_ID> <PORT> <TRACKER_IP>")
+    sys.exit(1)
 
 TRACKER = (sys.argv[3], 8000)
 PEER_ID = sys.argv[1]
