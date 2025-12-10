@@ -229,8 +229,15 @@ class Peer:
         self.send_new_file_notification(filename)
         print(f"[DONE] File {filename} saved.")
 
-        with open("download_times.csv", "a") as log_file:
-            log_file.write(f"{filename}, {file.size}, {len(holders)}, {download_time:.2f}\n")
+        csv_path = "download_times.csv"
+        file_exists = os.path.exists(csv_path)
+
+        with open(csv_path, "a", encoding="utf-8") as log_file:
+            if not file_exists:
+                log_file.write("arquivo,tamanho,n_peers,tempo\n")
+            
+            log_file.write(f"{filename},{file.size},{len(holders)},{download_time:.2f}\n")
+
 
     def send_new_file_notification(self, filename):
         message = f"NEW_FILE {self.peer_id} {filename}"
