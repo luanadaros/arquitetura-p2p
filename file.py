@@ -31,12 +31,18 @@ class FILES:
 
     def read_from_blocklist(self, blocklist: dict, file_name: str):
         self.file_name = file_name
+        self._blocks = {}
+        self.size = 0  # reset size
+
         for idx, block in blocklist.items():
             self._read_inblock(idx, block)
             self.size += len(block)
+
         self.order_blocks()
         self.n_of_blocks = len(self._blocks)
-        self.order_blocks()
+
+    def generate_blocklist(self) -> dict:
+        return {idx: info['data'] for idx, info in self._blocks.items()}
 
     def set_n_of_blocks(self, n: int):
         if n> 0 and n <= len(self._blocks):

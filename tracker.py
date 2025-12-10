@@ -13,9 +13,15 @@ class Tracker:
     
     def _verify_peer_files(self, peer_id, files):
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-            s.connect(('127.0.0.1', int(self.peers[peer_id]['port'])))
-            s.sendall(f"VERIFY_FILES {','.join(files)}".encode())
-            response = s.recv(4096).decode()
+            try:
+                s.settimeout(5)
+                s.connect(('127.0.0.1', int(self.peers[peer_id]['port'])))
+                s.sendall(f"VERIFY_FILES {','.join(files)}".encode())
+                response = s.recv(4096).decode()
+            except Exception as e:
+                print(f"[ERROR] Peer {peer_id} não respondeu ao VERIFY_FILES: {e}")
+                return
+
             if response != "FILES_OK":
                 new_files = response.replace("New files list: ", "").split(",")
                 with self.lock:
@@ -33,17 +39,40 @@ class Tracker:
             except Exception as e:
                 print("Error updating files:", e)
             time.sleep(2)
+    
+    def _get_my_ip(self):
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        try:
+            s.connect(("8.8.8.8", 80))
+            ip = s.getsockname()[0]
+        except:
+            ip = "127.0.0.1"
+        finally:
+            s.close()
+        return ip
+
 
     def start(self):
-        print("Tracker started on port 8000")
+        tracker_ip = self._get_my_ip()
+        print(f"Tracker running at {tracker_ip}:8000")
+
         threading.Thread(target=self._periodic_update, daemon=True).start()
         while True:
             connection, address = self.server_socket.accept()
             threading.Thread(target=self.handle_request, args=(connection, address)).start()
 
     def handle_request(self, connection, address):
-        data = connection.recv(4096).decode()
-        data = data.split()
+        try:
+            raw = connection.recv(4096)
+            if not raw:
+                connection.close()
+                return
+            data = raw.decode().split()
+        except Exception as e:
+            print(f"[ERROR] Falha ao receber dados de {address}: {e}")
+            connection.close()
+            return
+
 
         try:
             command = data[0]
@@ -88,7 +117,6 @@ class Tracker:
                     if peer_id in self.peers:
                         del self.peers[peer_id]
                         print(f"Peer {peer_id} disconnected")
-
         except Exception as e:
             connection.send(b"NOT REGISTERED")
 

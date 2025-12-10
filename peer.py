@@ -6,13 +6,11 @@ import sys
 import struct
 from file import FILES
 
-if len(sys.argv) > 2:
-    print(f"Peer: {sys.argv[1]}")
-    print(f"Port: {sys.argv[2]}")
-else:
-    print("Missing arguments. Usage: python peer.py <PEER_ID> <PORT>")
+if len(sys.argv) != 4:
+    print("Missing arguments. Usage: python peer.py <PEER_ID> <PORT> <TRACKER_IP>")
+    sys.exit(1)
 
-TRACKER = ("127.0.0.1", 8000)
+TRACKER = (sys.argv[3], 8000)
 PEER_ID = sys.argv[1]
 PORT = int(sys.argv[2])
 PEER_FILES = f"{PEER_ID}/files"
@@ -39,6 +37,13 @@ class Peer:
                 f = FILES(file_path)
                 files.append(f)
         return files
+    
+    def _get_my_ip(self):
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        s.connect(("8.8.8.8", 80))
+        ip = s.getsockname()[0]
+        s.close()
+        return ip
 
     def start(self):
         while True:
@@ -51,18 +56,37 @@ class Peer:
                 sys.exit(0)
     
     def handle_request(self, connection, address):
-        data = connection.recv(4096).decode()
-        command, filename = data.split()
+        try:
+            data = connection.recv(4096).decode()
+        except Exception as e:
+            print(f"[ERROR] Falha ao receber dados de {address}: {e}")
+            connection.close()
+            return
+
+        try:
+            command, filename = data.split()
+        except ValueError:
+            print(f"[ERROR] Comando inválido recebido: {data}")
+            connection.close()
+            return
+
         
         if command == "GET":
             for f in self.files:
                 if f.file_name == filename:
-                    for block_idx in range(f.get_n_of_blocks()):
-                        block_data = f.get_block(block_idx)
-                        block_size = len(block_data)
-                        header = struct.pack("!II", block_idx, block_size)
-                        connection.sendall(header + block_data)
-                    break
+                    try:
+
+                        blocks = f.generate_blocklist()
+                        total_blocks = len(blocks)
+                        total_size = f.size
+                        connection.sendall(struct.pack("!II", total_blocks, total_size))
+
+                        for idx, block in blocks.items():
+                            header = struct.pack("!II", idx, len(block))
+                            connection.sendall(header + block)
+                    except Exception as e:
+                        print(f"[ERROR] Falha ao enviar arquivo {filename}: {e}")
+
         elif command == "VERIFY_FILES":
             requested_files = filename.split(",")
             self.files = self.__get_files_from_dir(self._dir)
@@ -93,31 +117,77 @@ class Peer:
 
         blocks = {}
         blocks_lock = threading.Lock()
+        meta_info = {"total_blocks": None, "total_size": None}
+        meta_lock = threading.Lock()
+
 
         def download_from_peer(holder):
             ip, port = holder.split(":")
             port = int(port)
 
-            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-                s.connect((ip, port))
-                s.sendall(f"GET {filename}".encode())
+            try:
+                with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+                    s.settimeout(5)
 
-                while True:
-                    header = self._recvn(s, 8)
-                    if not header:
-                        break
+                    # Conectar
+                    try:
+                        s.connect((ip, port))
+                    except Exception as e:
+                        print(f"[ERROR] Falha ao conectar ao peer {holder}: {e}")
+                        return
 
-                    block_idx, block_size = struct.unpack("!II", header)
-                    block_data = self._recvn(s, block_size)
+                    # Mandar GET
+                    try:
+                        s.sendall(f"GET {filename}".encode())
+                    except Exception as e:
+                        print(f"[ERROR] Falha ao enviar GET para {holder}: {e}")
+                        return
 
-                    with blocks_lock:
-                        if block_idx not in blocks:
-                            blocks[block_idx] = block_data
-                            print(f"[RECEIVED] Block {block_idx} ({block_size} bytes) from peer {holder}")
-                            time.sleep(0.1)  # small delay to avoid overwhelming
+                    # RECEBER META-INFORMAÇÃO
+                    try:
+                        meta = self._recvn(s, 8)
+                        if not meta:
+                            print("[ERROR] meta-info vazia")
+                            return
+
+                        total_blocks, total_size = struct.unpack("!II", meta)
+                        print(f"[META] Peer {holder} enviará {total_blocks} blocos (tamanho total {total_size} bytes)")
+
+                        with meta_lock:
+                            if meta_info["total_blocks"] is None:
+                                meta_info["total_blocks"] = total_blocks
+                                meta_info["total_size"] = total_size
+
+                    except Exception as e:
+                        print(f"[ERROR] Falha ao receber meta-info de {holder}: {e}")
+                        return
+
+                    # RECEBER BLOCOS
+                    while True:
+                        try:
+                            header = self._recvn(s, 8)
+                        except Exception as e:
+                            print(f"[ERROR] Falha ao receber header de {holder}: {e}")
+                            return
+
+                        if not header:
+                            break
+
+                        try:
+                            block_idx, block_size = struct.unpack("!II", header)
+                            block_data = self._recvn(s, block_size)
+                        except Exception as e:
+                            print(f"[ERROR] Header inválido/truncado em {holder}: {e}")
+                            return
+
+                        with blocks_lock:
+                            if block_idx not in blocks:
+                                blocks[block_idx] = block_data
+                                print(f"[RECEIVED] Bloco {block_idx} ({block_size} bytes) de {holder}")
+            except Exception as e:
+                print(f"[ERROR] Falha inesperada no download com peer {holder}: {e}")
 
         threads = []
-
         start_time = time.time()
 
         for holder in holders:
@@ -129,23 +199,37 @@ class Peer:
             t.join()
 
         end_time = time.time()
-        print(f"[DOWNLOAD COMPLETE] Time taken: {end_time - start_time:.2f} seconds")
         download_time = end_time - start_time
+        print(f"[DOWNLOAD COMPLETE] Time taken: {download_time:.2f} seconds")
 
-        if blocks:
-            print(f"[FINAL] Received {len(blocks)} blocks. Rebuilding archive...")
-            file = FILES()
+        if not blocks:
+            print(f"[ERROR] Nenhum bloco foi recebido de nenhum peer.")
+            return
+
+        file = FILES()
+
+
+        try:
             file.read_from_blocklist(blocks, filename)
-            self.files.append(file)
-            file.save_to_disk(f"{self.peer_id}/files")
-            self.send_new_file_notification(filename)
-            print(f"[DONE] FIle {filename} saved.")
+        except Exception as e:
+            print(f"[ERROR] Falha ao reconstruir o arquivo {filename}: {e}")
+            return
 
-            with open("download_times.csv", "a") as log_file:
-                log_file.write(f"{filename}, {file.size}, {len(holders)}, {download_time:.2f}\n")
-            
+        expected = meta_info["total_blocks"]
+
+        if expected is not None and len(blocks) != expected:
+            missing = sorted(set(range(expected)) - set(blocks.keys()))
+            print(f"[WARNING] Arquivo {filename} incompleto: faltam os blocos {missing}")
         else:
-            print(f"[ERROR] No blocks received from any peers.")
+            print(f"[OK] Arquivo {filename} reconstruído com sucesso.")
+
+        self.files.append(file)
+        file.save_to_disk(f"{self.peer_id}/files")
+        self.send_new_file_notification(filename)
+        print(f"[DONE] File {filename} saved.")
+
+        with open("download_times.csv", "a") as log_file:
+            log_file.write(f"{filename}, {file.size}, {len(holders)}, {download_time:.2f}\n")
 
     def send_new_file_notification(self, filename):
         message = f"NEW_FILE {self.peer_id} {filename}"
@@ -163,8 +247,9 @@ class Peer:
 
         files = ",".join(files_names)
         port = self.port
+        peer_ip = self._get_my_ip()
 
-        message = f"REGISTER 127.0.0.1 {peer_id} {port} {files}"
+        message = f"REGISTER {peer_ip} {peer_id} {port} {files}"
 
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
             s.connect(TRACKER)
