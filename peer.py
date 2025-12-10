@@ -5,6 +5,7 @@ import time
 import sys
 import struct
 from file import FILES
+from tests import benchmark, stress_test
 
 if len(sys.argv) != 4:
     print("Missing arguments. Usage: python peer.py <PEER_ID> <PORT> <TRACKER_IP>")
@@ -307,10 +308,46 @@ if __name__ == "__main__":
                 else:
                     print(f"No peer has the file {filename}")
 
+            elif command.startswith("bench "):
+                parts = command.split()
+                if len(parts) == 2:
+                    filename = parts[1]
+                    runs = 5 
+                elif len(parts) == 3:
+                    filename = parts[1]
+                    try:
+                        runs = int(parts[2])
+                    except ValueError:
+                        print("Uso: bench <filename> [runs]")
+                        continue
+                else:
+                    print("Uso: bench <filename> [runs]")
+                    continue
+
+                benchmark(peer, filename, runs)
+
+            elif command.startswith("stress "):
+                parts = command.split()
+                if len(parts) == 2:
+                    filename = parts[1]
+                    n_threads = 10  # default
+                elif len(parts) == 3:
+                    filename = parts[1]
+                    try:
+                        n_threads = int(parts[2])
+                    except ValueError:
+                        print("Uso: stress <filename> [n_threads]")
+                        continue
+                else:
+                    print("Uso: stress <filename> [n_threads]")
+                    continue
+
+                stress_test(peer, filename, n_threads)
+
             elif command == "exit":
                 print("Finishing peer connection...")
                 peer.disconnect_from_tracker()
                 sys.exit(0)
 
             else:
-                print("Invalid command. Available commands: get <filename>, myfiles, whohas <filename>, exit")
+                print("Invalid command. Available commands: get <filename>, myfiles, whohas <filename>, bench <filename> [runs], stress <filename> [n_threads], exit")
