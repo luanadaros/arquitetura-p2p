@@ -8,42 +8,31 @@ CSV_PATH = "download_times.csv"
 def load_data(csv_path=CSV_PATH):
     """
     Lê CSV com cabeçalho:
-    arquivo  tamanho  n_peers  tempo
-
-    Aceita qualquer combinação de espaços/tabs como separador.
+    arquivo,tamanho,n_peers,tempo
+    (separado por vírgula)
     """
     rows = []
     with open(csv_path, "r", encoding="utf-8") as f:
-        for line in f:
-            line = line.strip()
-            if not line:
-                continue
-
-            parts = line.split()  # separa por qualquer whitespace (espaço, tab, etc.)
-
-            # pula a linha de cabeçalho
-            if parts[0].lower() == "arquivo":
-                continue
-
-            if len(parts) < 4:
-                # linha quebrada ou com menos colunas
-                continue
-
+        reader = csv.DictReader(f, delimiter=",")
+        for line in reader:
             try:
-                filename = parts[0]
-                size_bytes = int(parts[1])
-                n_peers = int(parts[2])
-                time_sec = float(parts[3])
-            except ValueError:
-                # se der erro na conversão, ignora a linha
+                filename = line["arquivo"].strip()
+                size_bytes = int(line["tamanho"])
+                n_peers = int(line["n_peers"])
+                time_sec = float(line["tempo"])
+            except Exception as e:
+                # Se alguma linha estiver zoada, pula
+                # print("Ignorando linha:", line, "| erro:", e)
                 continue
 
             rows.append((filename, size_bytes, n_peers, time_sec))
 
     return rows
 
-
 def aggregate_by_peers(rows):
+    """
+    Agrupa tempos por n_peers e calcula média e desvio padrão.
+    """
     times_by_peers = defaultdict(list)
 
     for filename, size_bytes, n_peers, time_sec in rows:
@@ -63,6 +52,9 @@ def aggregate_by_peers(rows):
     return peers_list, means, stds
 
 def plot_performance(peers_list, means, stds):
+    """
+    Plota gráfico de barras: nº de peers vs tempo médio de download.
+    """
     plt.figure()
     x = range(len(peers_list))
 
