@@ -2,6 +2,8 @@ import time
 import socket
 import threading
 
+PEER_TIMEOUT = 1.5  # segundos
+
 # Rastreador para gerenciar peers em uma rede P2P simples
 class Tracker:
     def __init__(self):
@@ -16,7 +18,7 @@ class Tracker:
             try:
                 s.settimeout(5)
                 s.connect(('127.0.0.1', int(self.peers[peer_id]['port'])))
-                s.sendall(f"VERIFY_FILES {','.join(files)}".encode())
+                s.sendall(f"VERIFY_FILES {','.join(files)}\n".encode())
                 response = s.recv(4096).decode()
             except Exception as e:
                 print(f"[ERROR] Peer {peer_id} não respondeu ao VERIFY_FILES: {e}")
@@ -51,7 +53,6 @@ class Tracker:
             s.close()
         return ip
 
-
     def start(self):
         tracker_ip = self._get_my_ip()
         print(f"Tracker running at {tracker_ip}:8000")
@@ -61,6 +62,46 @@ class Tracker:
             connection, address = self.server_socket.accept()
             threading.Thread(target=self.handle_request, args=(connection, address)).start()
 
+    def _ask_peer_block_count(self, endpoint: str, filename: str) -> int | None:
+        """
+        endpoint: "IP:PORT" (ex: "191.299.34.5:6881")
+        Protocolo (texto): "BLOCK_COUNT <filename>\n" -> "OK <int>\n" ou "<int>\n"
+        """
+        try:
+            if ":" not in endpoint:
+                return None
+
+            ip, port_str = endpoint.rsplit(":", 1)
+            port = int(port_str)
+
+            with socket.create_connection((ip, port), timeout=PEER_TIMEOUT) as s:
+                s.settimeout(PEER_TIMEOUT)
+
+                s.sendall(f"BLOCK_COUNT {filename}\n".encode("utf-8"))
+
+                buf = b""
+                max_bytes = 4096  # limite pra não travar lendo infinito
+                while b"\n" not in buf and len(buf) < max_bytes:
+                    chunk = s.recv(1024)
+                    if not chunk:
+                        break
+                    buf += chunk
+
+                line = buf.split(b"\n", 1)[0].decode("utf-8", errors="ignore").strip()
+                if not line:
+                    return None
+
+                parts = line.split()
+                if len(parts) == 1 and parts[0].isdigit():
+                    return int(parts[0])
+                if len(parts) == 2 and parts[0].upper() == "OK" and parts[1].isdigit():
+                    return int(parts[1])
+
+                return None
+
+        except (OSError, ValueError):
+            return None
+    
     def handle_request(self, connection, address):
         try:
             raw = connection.recv(4096)
@@ -94,13 +135,22 @@ class Tracker:
             
             elif command == "WHO_HAS":
                 filename = data[1]
+
                 holders = [
                     f"{peer_info['ip']}:{peer_info['port']}"
-                    for peer_id, peer_info in self.peers.items()
-                    if filename in peer_info['files']
+                    for peer_info in self.peers.values()
+                    if filename in peer_info["files"]
                 ]
 
-                connection.sendall(",".join(holders).encode())
+                result = []
+
+                for endpoint in holders:
+                    block_count = self._ask_peer_block_count(endpoint, filename)
+                    if block_count is not None:
+                        result.append(f"{endpoint}|{block_count}")
+
+                response = ",".join(result)
+                connection.sendall(response.encode("utf-8"))
             
             elif command == "NEW_FILE":
                 peer_id = data[1]
